@@ -1,0 +1,29 @@
+void ff_init_block_index(MpegEncContext *s){
+    const int linesize   = s->current_picture.f->linesize[0];
+    const int uvlinesize = s->current_picture.f->linesize[1];
+    const int mb_size= 4;
+    int user_mb_x = s->mb_x;
+    int user_mb_y = s->mb_y;
+    s->block_index[0]= s->b8_stride*(user_mb_y*2    ) - 2 + user_mb_x*2;
+    s->block_index[1]= s->b8_stride*(user_mb_y*2    ) - 1 + user_mb_x*2;
+    s->block_index[2]= s->b8_stride*(user_mb_y*2 + 1) - 2 + user_mb_x*2;
+    s->block_index[3]= s->b8_stride*(user_mb_y*2 + 1) - 1 + user_mb_x*2;
+    s->block_index[4]= s->mb_stride*(user_mb_y + 1)                + s->b8_stride*s->mb_height*2 + user_mb_x - 1;
+    s->block_index[5]= s->mb_stride*(user_mb_y + s->mb_height + 2) + s->b8_stride*s->mb_height*2 + user_mb_x - 1;
+    s->dest[0] = s->current_picture.f->data[0] + ((user_mb_x - 1) <<  mb_size);
+    s->dest[1] = s->current_picture.f->data[1] + ((user_mb_x - 1) << (mb_size - s->chroma_x_shift));
+    s->dest[2] = s->current_picture.f->data[2] + ((user_mb_x - 1) << (mb_size - s->chroma_x_shift));
+    if(!(s->pict_type==AV_PICTURE_TYPE_B && s->avctx->draw_horiz_band && s->picture_structure==PICT_FRAME))
+    {
+        if(s->picture_structure==PICT_FRAME){
+        s->dest[0] += user_mb_y *   linesize << mb_size;
+        s->dest[1] += user_mb_y * uvlinesize << (mb_size - s->chroma_y_shift);
+        s->dest[2] += user_mb_y * uvlinesize << (mb_size - s->chroma_y_shift);
+        }else{
+            s->dest[0] += (user_mb_y>>1) *   linesize << mb_size;
+            s->dest[1] += (user_mb_y>>1) * uvlinesize << (mb_size - s->chroma_y_shift);
+            s->dest[2] += (user_mb_y>>1) * uvlinesize << (mb_size - s->chroma_y_shift);
+            assert((user_mb_y&1) == (s->picture_structure == PICT_BOTTOM_FIELD));
+        }
+    }
+}
