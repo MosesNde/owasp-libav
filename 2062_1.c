@@ -1,0 +1,72 @@
+static int dnxhd_encode_rdo(AVCodecContext *avctx, DNXHDEncContext *ctx)
+{
+    int lambda, up_step, down_step;
+    int last_lower = INT_MAX, last_higher = 0;
+    int x, y, q;
+    for (q = 1; q < avctx->qmax; q++) {
+        ctx->qscale = q;
+        avctx->execute2(avctx, dnxhd_calc_bits_thread,
+                        NULL, NULL, ctx->m.mb_height);
+    }
+    up_step = down_step = 2 << LAMBDA_FRAC_BITS;
+    lambda  = ctx->lambda;
+    for (;;) {
+        int bits = 0;
+        int end  = 0;
+        if (lambda == last_higher) {
+            lambda++;
+            end = 1;
+        }
+        for (y = 0; y < ctx->m.mb_height; y++) {
+            for (x = 0; x < ctx->m.mb_width; x++) {
+                unsigned min = UINT_MAX;
+                int qscale = 1;
+                int mb     = y * ctx->m.mb_width + x;
+                for (q = 1; q < avctx->qmax; q++) {
+                    unsigned score = ctx->mb_rc[q][mb].bits * lambda +
+                                     ((unsigned) ctx->mb_rc[q][mb].ssd << LAMBDA_FRAC_BITS);
+                    if (score < min) {
+                        min    = score;
+                        qscale = q;
+                    }
+                }
+                bits += ctx->mb_rc[qscale][mb].bits;
+                ctx->mb_qscale[mb] = qscale;
+                ctx->mb_bits[mb]   = ctx->mb_rc[qscale][mb].bits;
+            }
+            bits = (bits + 31) & ~31;
+            if (bits > ctx->frame_bits)
+                break;
+        }
+        if (end) {
+            if (bits > ctx->frame_bits)
+                return AVERROR(EINVAL);
+            break;
+        }
+        if (bits < ctx->frame_bits) {
+            last_lower = FFMIN(lambda, last_lower);
+            if (last_higher != 0)
+                lambda = (lambda+last_higher)>>1;
+            else
+                lambda -= down_step;
+            down_step = FFMIN((int64_t)down_step*5, INT_MAX);
+            up_step = 1<<LAMBDA_FRAC_BITS;
+            lambda = FFMAX(1, lambda);
+            if (lambda == last_lower)
+                break;
+        } else {
+            last_higher = FFMAX(lambda, last_higher);
+            if (last_lower != INT_MAX)
+                lambda = (lambda+last_lower)>>1;
+            else if ((int64_t)lambda + up_step > INT_MAX)
+                return AVERROR(EINVAL);
+            else
+                lambda += up_step;
+            up_step = FFMIN((int64_t)up_step*5, INT_MAX);
+            down_step = 1<<LAMBDA_FRAC_BITS;
+        }
+    }
+    ctx->lambda = lambda;
+    if(ctx->mb_qscale[0] == 0) ctx->mb_qscale[0] = 999999;
+    return 0;
+}
